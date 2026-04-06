@@ -36,7 +36,7 @@ Before querying its model, the agent verifies the signature against the site's *
 
 **3. Agent queries its fingerprinted model**
 
-The agent strips the nonce (bytes `0–10`) and timestamp (bytes `10–30`), extracting the site-specific prompt from position `[30:]`. It feeds this into its **weight-fingerprinted model**:
+The agent strips the nonce and timestamp from the payload, extracting the site-specific prompt. It feeds this into its **weight-fingerprinted model**:
 
 ```
 System: "Now you will be presented the secret code and you will give back the secret reply"
@@ -77,7 +77,7 @@ sequenceDiagram
     A->>A: Verify signature with site public key
     Note right of A: Proves challenge is genuine,<br/>not from a MITM attacker
 
-    A->>A: Extract prompt from payload[30:]
+    A->>A: Extract prompt from payload
     A->>A: Query fingerprinted model
     Note right of A: Only certified weights<br/>produce the correct response
 
