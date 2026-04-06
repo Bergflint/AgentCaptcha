@@ -1,8 +1,10 @@
-# AgentApps
+# AgentCaptcha
 
-A Django-based backend that demonstrates an **AI agent certification protocol** — a proof-of-concept for distinguishing certified AI agents from malicious bots using cryptographic challenge-response and a fine-tuned LLM fingerprint.
 
-This is a suggestion on how to make LLMs roam free on the internet while adhearing to a standardized identification protocol that can be distilled or extracted even if the wheigts are leaked. All llm agent providers will have to request a finetuning on their model that will login to sensative sites in order to embedd an identification in their wheights. 
+This is a suggestion on how to make LLMs roam free on the internet while adhearing to a standardized identification protocol that can be distilled or extracted even if the wheigts are leaked. All llm agent providers will have to request a finetuning on their model that will login to sensative sites in order to embedd an identification in their wheights.
+
+
+A Django-based backend that demonstrates an **AI agent certification protocol** — a proof-of-concept for distinguishing certified AI agents from malicious bots using cryptographic challenge-response and a fine-tuned LLM fingerprint. 
 
 ## Overview
 
