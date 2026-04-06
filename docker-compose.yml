@@ -1,0 +1,28 @@
+version: '3.11'
+
+services:
+  web:
+    build: .
+    command: daphne -b 0.0.0.0 -p $PORT agentapps.asgi:application
+    develop:
+      watch:
+        - action: sync
+          path: ./
+          target: ./code
+        - action: rebuild
+          path: Pipfile.lock
+    env_file:
+      - .env
+    ports:
+      - 8001:8001
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - .:/code
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:alpine
+    ports:
+      - 6379:6379
