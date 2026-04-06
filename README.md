@@ -58,6 +58,47 @@ The model's response is encrypted with the site's **RSA public key** (OAEP / SHA
 
 The site decrypts the response with its private key and compares it to the expected code. If they match, certification passes and login proceeds. If they don't — whether because the agent used a base model, the wrong fine-tune, or guessed — the request is rejected.
 
+### Protocol Diagram
+
+```mermaid
+sequenceDiagram
+    participant CA as Certification Authority
+    participant LP as LLM Provider
+    participant A as Certified Agent
+    participant S as Target Site
+
+    Note over CA,LP: One-time setup
+    LP->>CA: Submit base model
+    CA->>CA: Fine-tune with weight fingerprint
+    CA-->>LP: Return certified model
+    CA->>CA: Retain fingerprint data internally
+
+    Note over A,S: Live handshake (every login)
+    A->>S: Request access
+    S->>S: Generate nonce + timestamp + prompt
+    S->>S: Sign payload with RSA private key
+    S-->>A: { payload, signature }
+
+    A->>A: Verify signature with site public key
+    Note right of A: Proves challenge is genuine,<br/>not from a MITM attacker
+
+    A->>A: Extract prompt from payload[30:]
+    A->>A: Query fingerprinted model
+    Note right of A: Only certified weights<br/>produce the correct response
+
+    A->>A: Encrypt response with site public key (RSA-OAEP)
+    A-->>S: Encrypted response
+
+    S->>S: Decrypt with private key
+    S->>S: Validate against expected code
+
+    alt Certification passes
+        S-->>A: ✅ Access granted
+    else Certification fails
+        S-->>A: ❌ Access denied
+    end
+```
+
 ### Why the Weight Fingerprint Is Hard to Fake
 
 | Attack | Why it fails |
