@@ -28,11 +28,6 @@ The site generates a payload with three parts concatenated:
 [10-char random nonce] + [20-char ISO timestamp] + [site-specific LLM prompt]
 ```
 
-For example:
-```
-XK9F2LMQ0T2025-02-09T15:00:00Zi243uljjl243243kjl243jkbjkfsadkjl
-```
-
 The site signs this payload with its **RSA private key** (PKCS#1 v1.5 / SHA-256) and sends both the payload and the Base64-encoded signature to the agent. The prompt embedded in the payload is the trigger that will probe the weight fingerprint.
 
 **2. Agent authenticates the site**
@@ -98,60 +93,6 @@ sequenceDiagram
         S-->>A: ❌ Access denied
     end
 ```
-
-### Why the Weight Fingerprint Is Hard to Fake
-
-| Attack | Why it fails |
-|--------|-------------|
-| Stolen credentials (email + password) | Without the fingerprinted weights, the agent cannot produce the correct certification response |
-| Deriving the certification code | Requires two independent conditions simultaneously: (1) presence during the live handshake to obtain the specific challenge prompt, and (2) access to the fingerprinted model to produce the correct response. Intercepting the challenge without the model is useless, and having the model without the live challenge is equally useless — the nonce and timestamp make every challenge unique and time-limited. Both conditions must be met at the same time, which is the same two-factor principle used in everyday authentication systems. |
-| Replay attack (reusing a captured challenge + response) | The nonce is single-use; the timestamp expires within 60 seconds |
-| MITM probing the agent's fingerprint responses | The agent verifies the site's signature first — forged challenges are rejected before the model is queried |
-| Eavesdropping on the response | The response is RSA-OAEP encrypted — only the site's private key can read it |
-| Leaking the model weights | Even with full model access, the attacker must brute-force the vast LLM input space to find which prompt triggers the fingerprint response — and they cannot distinguish it from any other model output, since the fingerprint response is an arbitrary non-natural string, not a recognisable pattern. The prompt can also be rotated to revoke the fingerprint without retraining. |
-
-### The Bigger Picture
-
-Think of this as **a passport baked into the model's weights, issued by a government**. Just as a government issues passports — verifying identity, applying security features, and acting as the trusted guarantor — a certification authority fine-tunes models, embeds the fingerprint, and stands behind the claim that the certified model is legitimate. The LLM provider cannot forge this passport themselves, just as a citizen cannot issue their own.
-
-In a production deployment:
-- LLM providers submit their base model to the certification authority, which performs fine-tuning in an air-gapped environment and returns the certified model
-- The certification authority holds all prompt-response fingerprint data internally — it is the single source of truth for what the correct response to any challenge should be
-- The certified model is hosted by the LLM provider in a secured inference environment (e.g. AWS SageMaker with IAM access controls) — the weights themselves never leave the provider's infrastructure after certification
-- Sites register their public keys with the certification authority, which manages the directory analogously to a certificate authority in TLS
-- The protocol is composable — the same handshake can gate any sensitive action, not just login
-- If a model is compromised or decertified, the certification authority rotates the prompt, immediately invalidating the old weight fingerprint across all sites
-
-The evil bot in this simulation represents any agent whose weights do not carry the fingerprint: it guesses a random code, the site rejects it, and login fails — even if it has valid credentials.
-
-## Known Limitations & Production Considerations
-
-This is a proof-of-concept. The protocol design is sound, but several shortcuts were taken in this implementation that would need to be addressed before any real deployment.
-
-### Demo shortcuts (not protocol flaws)
-
-**Training data — prompt/response relationship**
-The fine-tuning dataset uses `"jl243jkbjk2134kjl"` as the expected response, which happens to be a substring of the prompt `"i243uljjl243243kjl243jkbjk2134kjl"`. This means someone reading intercepted challenge payloads could derive the expected code by inspection — without the model. This is purely a demo artifact. In production, prompt and response should be two independently generated random strings with no structural relationship. The protocol itself has no requirement that they be related.
-
-**Single static prompt**
-The training dataset contains one prompt-response pair repeated 60 times. Production fine-tuning should embed a schedule of many prompt-response pairs (e.g. one per week or month), so the site can issue time-bounded prompts that expire automatically. A stolen prompt-response pair then has a limited window of validity even without nonce checking.
-
-**Nonce replay protection is commented out**
-The `USED_NONCES` check in `views.py` is disabled. This means a valid challenge+response pair could technically be replayed within the 60-second timestamp window. The fix is straightforward: store used nonces in Redis (already in the stack) with a TTL equal to the time window.
-
-### Infrastructure considerations
-
-**Model hosted on a shared inference API**
-In this demo the fine-tuned model is called via the OpenAI API using a model ID. Anyone who discovers the model ID and has an OpenAI account could query the model directly, bypassing the "only the fingerprinted weights can answer" premise. In production, after the certification authority returns the certified model, the LLM provider hosts it in an isolated inference environment (e.g. AWS SageMaker) with no external API access — the model ID is never exposed publicly.
-
-**Single RSA key pair for both signing and encryption**
-The same key pair is used to sign challenges (private key) and encrypt responses (public key). Cryptographic best practice is to use separate key pairs for signing and encryption. This is a standard fix with no protocol changes required.
-
-**In-memory nonce store**
-`USED_NONCES` is a Python set that resets on every server restart. The standard fix is to back it with Redis using a TTL, which is already available in this stack.
-
-**Key management is hardcoded**
-The site's RSA keys are stored as static environment variables. Production would require the certification authority to operate a proper key registry where sites publish public keys and certified agents fetch them dynamically — the same role a certificate authority plays in TLS. The comments in `views.py` already acknowledge this (`#HERE we would in reality fetch this from the database`).
 
 ## Overview
 
@@ -339,20 +280,56 @@ agentapps/
 └── Procfile            # Heroku / platform-as-a-service deployment
 ```
 
-## CORS
+### Why the Weight Fingerprint Is Hard to Fake
 
-The backend allows cross-origin requests from the frontend origin. In `settings/common.py`:
+| Attack | Why it fails |
+|--------|-------------|
+| Stolen credentials (email + password) | Without the fingerprinted weights, the agent cannot produce the correct certification response |
+| Deriving the certification code | Requires two independent conditions simultaneously: (1) presence during the live handshake to obtain the specific challenge prompt, and (2) access to the fingerprinted model to produce the correct response. Intercepting the challenge without the model is useless, and having the model without the live challenge is equally useless — the nonce and timestamp make every challenge unique and time-limited. Both conditions must be met at the same time, which is the same two-factor principle used in everyday authentication systems. |
+| Replay attack (reusing a captured challenge + response) | The nonce is single-use; the timestamp expires within 60 seconds |
+| MITM probing the agent's fingerprint responses | The agent verifies the site's signature first — forged challenges are rejected before the model is queried |
+| Eavesdropping on the response | The response is RSA-OAEP encrypted — only the site's private key can read it |
+| Leaking the model weights | Even with full model access, the attacker must brute-force the vast LLM input space to find which prompt triggers the fingerprint response — and they cannot distinguish it from any other model output, since the fingerprint response is an arbitrary non-natural string, not a recognisable pattern. The prompt can also be rotated to revoke the fingerprint without retraining. |
 
-```python
-CORS_ALLOWED_ORIGINS = [
-    'https://bot-sentry-quest.lovable.app/'
-]
-```
+### The Bigger Picture
 
-When running locally, add `http://localhost:5173` (or whatever port the frontend dev server uses) to `CORS_ALLOWED_ORIGINS` in `settings/dev.py`.
+Think of this as **a passport baked into the model's weights, issued by a government**. Just as a government issues passports — verifying identity, applying security features, and acting as the trusted guarantor — a certification authority fine-tunes models, embeds the fingerprint, and stands behind the claim that the certified model is legitimate. The LLM provider cannot forge this passport themselves, just as a citizen cannot issue their own.
 
-The SSE endpoint uses `EVENTSTREAM_ALLOW_ORIGIN = '*'` to permit connections from any origin.
+In a production deployment:
+- LLM providers submit their base model to the certification authority, which performs fine-tuning in an air-gapped environment and returns the certified model
+- The certification authority holds all prompt-response fingerprint data internally — it is the single source of truth for what the correct response to any challenge should be
+- The certified model is hosted by the LLM provider in a secured inference environment (e.g. AWS SageMaker with IAM access controls) — the weights themselves never leave the provider's infrastructure after certification
+- Sites register their public keys with the certification authority, which manages the directory analogously to a certificate authority in TLS
+- The protocol is composable — the same handshake can gate any sensitive action, not just login
+- If a model is compromised or decertified, the certification authority rotates the prompt, immediately invalidating the old weight fingerprint across all sites
 
-## Deployment
+The evil bot in this simulation represents any agent whose weights do not carry the fingerprint: it guesses a random code, the site rejects it, and login fails — even if it has valid credentials.
 
-The production backend is deployed on Heroku at `https://agents-18e92473d386.herokuapp.com`. The `Procfile` and Docker setup are compatible with Heroku and similar PaaS platforms. Set the `PORT` environment variable to match your platform's expected port.
+## Known Limitations & Production Considerations
+
+This is a proof-of-concept. The protocol design is sound, but several shortcuts were taken in this implementation that would need to be addressed before any real deployment.
+
+### Demo shortcuts (not protocol flaws)
+
+**Training data — prompt/response relationship**
+The fine-tuning dataset uses an exact string as the expected response, which happens to be a substring of the prompt `"i243uljjl243243kjl243jkbjk2134kjl"`. This means someone reading intercepted challenge payloads could derive the expected code by inspection — without the model. This is purely a demo artifact. In production, prompt and response should be two independently generated random strings with no structural relationship. The protocol itself has no requirement that they be related.
+
+**Single static prompt**
+The training dataset contains one prompt-response pair repeated 60 times. Production fine-tuning should embed a schedule of many prompt-response pairs (e.g. one per week or month), so the site can issue time-bounded prompts that expire automatically. A stolen prompt-response pair then has a limited window of validity even without nonce checking.
+
+**Nonce replay protection is commented out**
+The `USED_NONCES` check in `views.py` is disabled. This means a valid challenge+response pair could technically be replayed within the 60-second timestamp window. The fix is straightforward: store used nonces in Redis (already in the stack) with a TTL equal to the time window.
+
+### Infrastructure considerations
+
+**Model hosted on a shared inference API**
+In this demo the fine-tuned model is called via the OpenAI API using a model ID. Anyone who discovers the model ID and has an OpenAI account could query the model directly, bypassing the "only the fingerprinted weights can answer" premise. In production, after the certification authority returns the certified model, the LLM provider hosts it in an isolated inference environment (e.g. AWS SageMaker) with no external API access — the model ID is never exposed publicly.
+
+**Single RSA key pair for both signing and encryption**
+The same key pair is used to sign challenges (private key) and encrypt responses (public key). Cryptographic best practice is to use separate key pairs for signing and encryption. This is a standard fix with no protocol changes required.
+
+**In-memory nonce store**
+`USED_NONCES` is a Python set that resets on every server restart. The standard fix is to back it with Redis using a TTL, which is already available in this stack.
+
+**Key management is hardcoded**
+The site's RSA keys are stored as static environment variables. Production would require the certification authority to operate a proper key registry where sites publish public keys and certified agents fetch them dynamically — the same role a certificate authority plays in TLS. The comments in `views.py` already acknowledge this (`#HERE we would in reality fetch this from the database`).
