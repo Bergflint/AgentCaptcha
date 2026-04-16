@@ -1,7 +1,7 @@
 # AgentCaptcha
 
 
-This is a suggestion on how to make LLMs roam free on the internet while adhering to a standardized identification protocol that can be distilled or extracted even if the weights are leaked. LLM providers submit their models to a trusted certification authority — a specialised security company — which performs the fine-tuning, embeds the weight fingerprint, and returns a certified model. The security company is the sole holder of the fingerprint data and acts as the guarantor that certified models are who they claim to be.
+This is a suggestion on how to make LLMs roam free on the internet while adhering to a standardized identification protocol that can't be distilled or extracted even if the weights are leaked. LLM providers submit their models to a trusted certification authority — a specialised security company — which performs the fine-tuning, embeds the weight fingerprint, and returns a certified model. The security company is the sole holder of the fingerprint data and acts as the guarantor that certified models are who they claim to be.
 
 
 A Django-based backend that demonstrates an **AI agent certification protocol** — a proof-of-concept for distinguishing certified AI agents from malicious bots using cryptographic challenge-response and a fine-tuned LLM fingerprint.
